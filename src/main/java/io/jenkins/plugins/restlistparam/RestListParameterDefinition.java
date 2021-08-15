@@ -3,7 +3,8 @@ package io.jenkins.plugins.restlistparam;
 import com.cloudbees.plugins.credentials.common.StandardCredentials;
 import hudson.Extension;
 import io.jenkins.plugins.restlistparam.logic.paging.Paging;
-import io.jenkins.plugins.restlistparam.model.Item;
+import hudson.model.Item;
+import io.jenkins.plugins.restlistparam.model.ValueItem;
 import hudson.model.ParameterDefinition;
 import hudson.model.ParameterValue;
 import hudson.model.SimpleParameterDefinition;
@@ -44,7 +45,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
   private String filter;
   private Integer cacheTime;
   private String errorMsg;
-  private List<Item> values;
+  private List<ValueItem> values;
 
   @DataBoundConstructor
   public RestListParameterDefinition(final String name,
@@ -76,7 +77,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     this.mimeType = mimeType;
     this.valueExpression = valueExpression;
     this.credentialId = StringUtils.isNotBlank(credentialId) ? credentialId : "";
-    this.displayExpression = displayExpression;
+    this.displayExpression = StringUtils.isNotBlank(displayExpression) ? displayExpression : "$";
     this.defaultValue = StringUtils.isNotBlank(defaultValue) ? defaultValue : "";
     this.valueOrder = valueOrder != null ? valueOrder : ValueOrder.NONE;
     this.filter = StringUtils.isNotBlank(filter) ? filter : ".*";
@@ -110,7 +111,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
   }
 
   @DataBoundSetter
-  public void setDisplayExpression(String displayExpression) {
+  public void setDisplayExpression(final String displayExpression) {
     this.displayExpression = displayExpression;
   }
 
@@ -154,10 +155,10 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     return errorMsg;
   }
 
-  public List<Item> getValues() throws IOException {
+  public List<ValueItem> getValues() throws IOException {
     Optional<StandardCredentials> credentials = CredentialsUtils.findCredentials(null, credentialId);
 
-    ResultContainer<List<Item>> container = RestValueService.get(
+    ResultContainer<List<ValueItem>> container = RestValueService.get(
       getRestEndpoint(),
       credentials.orElse(null),
       getMimeType(),
@@ -188,9 +189,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
 
   @Override
   public ParameterValue createValue(final String value) {
-    RestListParameterValue parameterValue = values.stream().filter(item -> item.getDisplayValue().equals(value)).findFirst()
-      .map(item -> new RestListParameterValue(getName(), item.getValue(), item.getDisplayValue(), getDescription()))
-      .orElse(null);
+    RestListParameterValue parameterValue = new RestListParameterValue(getName(), values.get(Integer.parseInt(value)).getValue(), getDescription());
 
     checkValue(parameterValue);
     return parameterValue;
@@ -201,7 +200,12 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
   public ParameterValue createValue(final StaplerRequest req,
                                     final JSONObject jo)
   {
-    RestListParameterValue value = req.bindJSON(RestListParameterValue.class, jo);
+    RestListOptionParameterValue selectedOption = req.bindJSON(RestListOptionParameterValue.class, jo);
+
+    RestListParameterValue value = new RestListParameterValue(selectedOption.getName(),
+      values.get(selectedOption.getIndex()).getValue(),
+      selectedOption.getDescription());
+
     checkValue(value);
     return value;
   }
@@ -219,7 +223,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     }
 
     return values.stream()
-      .map(Item::getValue)
+      .map(ValueItem::getValue)
       .filter(Objects::nonNull)
       .anyMatch((val) -> value.getValue().equals(val));
   }
@@ -278,7 +282,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     }
 
     @POST
-    public FormValidation doCheckRestEndpoint(@AncestorInPath final hudson.model.Item context,
+    public FormValidation doCheckRestEndpoint(@AncestorInPath final Item context,
                                               @QueryParameter final String value,
                                               @QueryParameter final String credentialId)
     {
@@ -286,7 +290,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }
       else {
-        context.checkPermission(hudson.model.Item.CONFIGURE);
+        context.checkPermission(Item.CONFIGURE);
       }
 
       if (StringUtils.isNotBlank(value)) {
@@ -300,7 +304,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     }
 
     @POST
-    public FormValidation doCheckValueExpression(@AncestorInPath final hudson.model.Item context,
+    public FormValidation doCheckValueExpression(@AncestorInPath final Item context,
                                                  @QueryParameter final String value,
                                                  @QueryParameter final MimeType mimeType)
     {
@@ -308,7 +312,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }
       else {
-        context.checkPermission(hudson.model.Item.CONFIGURE);
+        context.checkPermission(Item.CONFIGURE);
       }
 
       if (StringUtils.isNotBlank(value)) {
@@ -324,27 +328,27 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
       return FormValidation.error(Messages.RLP_DescriptorImpl_ValidationErr_ExpressionEmpty());
     }
 
-    public ListBoxModel doFillCredentialIdItems(@AncestorInPath final hudson.model.Item context,
+    public ListBoxModel doFillCredentialIdItems(@AncestorInPath final Item context,
                                                 @QueryParameter final String credentialId)
     {
       return CredentialsUtils.doFillCredentialsIdItems(context, credentialId);
     }
 
-    public FormValidation doCheckCredentialId(@AncestorInPath final hudson.model.Item context,
+    public FormValidation doCheckCredentialId(@AncestorInPath final Item context,
                                               @QueryParameter final String value)
     {
       return CredentialsUtils.doCheckCredentialsId(context, value);
     }
 
     @POST
-    public FormValidation doCheckCacheTime(@AncestorInPath final hudson.model.Item context,
+    public FormValidation doCheckCacheTime(@AncestorInPath final Item context,
                                            @QueryParameter final Integer cacheTime)
     {
       if (context == null) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }
       else {
-        context.checkPermission(hudson.model.Item.CONFIGURE);
+        context.checkPermission(Item.CONFIGURE);
       }
 
       if (cacheTime != null && cacheTime >= 0) {
@@ -355,7 +359,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     }
 
     @POST
-    public FormValidation doTestConfiguration(@AncestorInPath final hudson.model.Item context,
+    public FormValidation doTestConfiguration(@AncestorInPath final Item context,
                                               @QueryParameter final String restEndpoint,
                                               @QueryParameter final String credentialId,
                                               @QueryParameter final MimeType mimeType,
@@ -368,7 +372,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }
       else {
-        context.checkPermission(hudson.model.Item.CONFIGURE);
+        context.checkPermission(Item.CONFIGURE);
       }
 
       Optional<StandardCredentials> credentials = CredentialsUtils.findCredentials(context, credentialId);
@@ -385,7 +389,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         return FormValidation.error(Messages.RLP_DescriptorImpl_ValidationErr_ExpressionEmpty());
       }
 
-      ResultContainer<List<Item>> container = RestValueService.get(
+      ResultContainer<List<ValueItem>> container = RestValueService.get(
         restEndpoint,
         credentials.orElse(null),
         mimeType,
@@ -397,7 +401,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         paging);
 
       Optional<String> errorMsg = container.getErrorMsg();
-      List<Item> values = container.getValue();
+      List<ValueItem> values = container.getValue();
       if (errorMsg.isPresent()) {
         return FormValidation.error(errorMsg.get());
       }
