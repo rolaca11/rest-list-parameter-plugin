@@ -1,6 +1,7 @@
 package io.jenkins.plugins.restlistparam;
 
 import io.jenkins.plugins.restlistparam.logic.RestValueService;
+import io.jenkins.plugins.restlistparam.logic.paging.Pagers;
 import io.jenkins.plugins.restlistparam.model.MimeType;
 import io.jenkins.plugins.restlistparam.model.Item;
 import io.jenkins.plugins.restlistparam.model.ResultContainer;
@@ -8,12 +9,13 @@ import io.jenkins.plugins.restlistparam.model.ValueOrder;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.List;
 
 // TODO more unit tests here (preferably replace integration tests)
 public class RestValueServiceTest {
   @Test
-  public void successfulGetIntegrationTest() {
+  public void successfulGetIntegrationTest() throws IOException {
     ResultContainer<List<Item>> test = RestValueService
       .get("http://api.github.com/repos/jellyfin/jellyfin/tags?per_page=3",
            null,
@@ -21,13 +23,13 @@ public class RestValueServiceTest {
            0,
            "$.*.name",
             "$",
-              null, ValueOrder.NONE);
+              null, ValueOrder.NONE, Pagers.NO_PAGER);
     Assert.assertFalse(test.getErrorMsg().isPresent());
     Assert.assertEquals(3, test.getValue().size());
   }
 
   @Test
-  public void unsuccessfulGetIntegrationTest() {
+  public void unsuccessfulGetIntegrationTest() throws IOException {
     ResultContainer<List<Item>> test = RestValueService
       .get("https://gitlab.example.com/api/v4/projects/gitlab-org%2Fgitlab-runner/releases",
            null,
@@ -35,7 +37,7 @@ public class RestValueServiceTest {
            0,
            "$.*.tag_name",
             "$",
-              null, ValueOrder.NONE);
+              null, ValueOrder.NONE, Pagers.NO_PAGER);
     Assert.assertNotNull(test);
     Assert.assertTrue(test.getErrorMsg().isPresent());
     Assert.assertEquals(0, test.getValue().size());

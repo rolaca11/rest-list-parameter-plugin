@@ -4,6 +4,7 @@ import com.cloudbees.plugins.credentials.common.StandardCredentials;
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
 import hudson.util.FormValidation;
 import io.jenkins.plugins.restlistparam.Messages;
+import io.jenkins.plugins.restlistparam.logic.paging.Paging;
 import io.jenkins.plugins.restlistparam.model.Item;
 import io.jenkins.plugins.restlistparam.model.MimeType;
 import io.jenkins.plugins.restlistparam.model.ResultContainer;
@@ -48,6 +49,7 @@ public class RestValueService {
    * @param displayExpression The Json-Path or xPath expression to filter the display values
    * @param filter            additional regex filter on any parsed values
    * @param order             Set a {@link ValueOrder} to optionally reorder the values
+   * @param paging            Paging
    * @return A {@link ResultContainer} that capsules either the desired values or a user friendly error message.
    */
   public static ResultContainer<List<Item>> get(final String restEndpoint,
@@ -57,17 +59,24 @@ public class RestValueService {
                                                 final String valueExpression,
                                                 final String displayExpression,
                                                 final String filter,
-                                                final ValueOrder order)
-  {
-    ResultContainer<List<Item>> valueList = new ResultContainer<>(Collections.emptyList());
-    ResultContainer<String> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, cacheTime);
-    Optional<String> rawValueError = rawValues.getErrorMsg();
+                                                final ValueOrder order,
+                                                final Paging paging) throws IOException {
 
-    if (!rawValueError.isPresent()) {
-      valueList = convertToValuesList(mimeType, rawValues.getValue(), valueExpression, displayExpression);
-    }
-    else {
-      valueList.setErrorMsg(rawValueError.get());
+    ResultContainer<List<Item>> valueList = new ResultContainer<>(Collections.emptyList());
+    Response previousResponse = null;
+
+    while(paging.isLastPage(previousResponse)) {
+      ResultContainer<Response> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, paging, cacheTime, previousResponse);
+
+      previousResponse = rawValues.getValue();
+      Optional<String> rawValueError = rawValues.getErrorMsg();
+
+      if (!rawValueError.isPresent()) {
+        String responseString = rawValues.getValue().body() != null ? rawValues.getValue().body().string() : "";
+        valueList = convertToValuesList(mimeType, responseString, valueExpression, displayExpression);
+      } else {
+        valueList.setErrorMsg(rawValueError.get());
+      }
     }
 
     if (!valueList.getErrorMsg().isPresent() && isFilterOrOrderSet(filter, order)) {
@@ -120,18 +129,21 @@ public class RestValueService {
   /**
    * Performs the REST/Web request.
    *
-   * @param restEndpoint A http/https web address to the REST/Web endpoint
-   * @param credentials  The credentials required to access said endpoint
-   * @param mimeType     The MIME type of the expected REST/Web response
-   * @param cacheTime    Time for how long the REST response gets cached for in minutes
+   * @param restEndpoint      A http/https web address to the REST/Web endpoint
+   * @param credentials       The credentials required to access said endpoint
+   * @param mimeType          The MIME type of the expected REST/Web response
+   * @param cacheTime         Time for how long the REST response gets cached for in minutes
+   * @param previousResponse  Response from previous request if any
    * @return A {@link ResultContainer} capsuling either the response body string in the desired {@link MimeType} or an error message
    */
-  private static ResultContainer<String> getValueStringFromRestEndpoint(final String restEndpoint,
+  private static ResultContainer<Response> getValueStringFromRestEndpoint(final String restEndpoint,
                                                                         final StandardCredentials credentials,
                                                                         final MimeType mimeType,
-                                                                        final Integer cacheTime)
-  {
-    ResultContainer<String> container = new ResultContainer<>("");
+                                                                        final Paging paging,
+                                                                        final Integer cacheTime,
+                                                                        final Response previousResponse) throws IOException {
+
+    ResultContainer<Response> container = new ResultContainer<>(null);
 
     OkHttpClient client = OkHttpUtils.getClientWithProxyAndCache(restEndpoint);
     Request request = new Request.Builder()
@@ -140,10 +152,12 @@ public class RestValueService {
       .headers(buildHeaders(credentials, mimeType))
       .build();
 
+    paging.applyPaging(previousResponse, request);
+
     try (Response response = client.newCall(request).execute()) {
       int statusCode = response.code();
       if (statusCode < 400) {
-        container.setValue(response.body() != null ? response.body().string() : "");
+        container.setValue(response);
       }
       else if (statusCode < 500) {
         log.warning(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
