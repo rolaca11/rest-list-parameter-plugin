@@ -5,6 +5,7 @@ import hudson.Extension;
 import io.jenkins.plugins.restlistparam.logic.paging.Paging;
 import hudson.model.Item;
 import io.jenkins.plugins.restlistparam.model.ValueItem;
+import io.jenkins.plugins.restlistparam.logic.paging.Paging;
 import hudson.model.ParameterDefinition;
 import hudson.model.ParameterValue;
 import hudson.model.SimpleParameterDefinition;

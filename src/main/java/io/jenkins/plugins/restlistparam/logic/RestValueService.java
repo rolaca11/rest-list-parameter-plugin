@@ -71,6 +71,10 @@ public class RestValueService {
       previousResponse = rawValues.getValue();
       Optional<String> rawValueError = rawValues.getErrorMsg();
 
+      ResultContainer<List<ValueItem>> valueList = new ResultContainer<>(Collections.emptyList());
+      ResultContainer<String> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, cacheTime);
+      Optional<String> rawValueError = rawValues.getErrorMsg();
+
       if (!rawValueError.isPresent()) {
         String responseString = rawValues.getValue().body() != null ? rawValues.getValue().body().string() : "";
         valueList = convertToValuesList(mimeType, responseString, valueExpression, displayExpression);
