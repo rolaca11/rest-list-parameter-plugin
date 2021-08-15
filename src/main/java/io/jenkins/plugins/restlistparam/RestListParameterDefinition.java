@@ -2,6 +2,7 @@ package io.jenkins.plugins.restlistparam;
 
 import com.cloudbees.plugins.credentials.common.StandardCredentials;
 import hudson.Extension;
+import io.jenkins.plugins.restlistparam.logic.paging.Paging;
 import io.jenkins.plugins.restlistparam.model.Item;
 import hudson.model.ParameterDefinition;
 import hudson.model.ParameterValue;
@@ -23,6 +24,7 @@ import org.kohsuke.stapler.verb.POST;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -152,7 +154,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     return errorMsg;
   }
 
-  public List<Item> getValues() {
+  public List<Item> getValues() throws IOException {
     Optional<StandardCredentials> credentials = CredentialsUtils.findCredentials(credentialId);
 
     ResultContainer<List<Item>> container = RestValueService.get(
@@ -163,7 +165,8 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
       getValueExpression(),
       getDisplayExpression(),
       getFilter(),
-      getValueOrder());
+      getValueOrder(),
+      null);
 
     setErrorMsg(container.getErrorMsg().orElse(""));
     values = container.getValue();
@@ -359,8 +362,8 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
                                               @QueryParameter final String valueExpression,
                                               @QueryParameter final String displayExpression,
                                               @QueryParameter final String filter,
-                                              @QueryParameter final ValueOrder valueOrder)
-    {
+                                              @QueryParameter final ValueOrder valueOrder,
+                                              @QueryParameter final Paging paging) throws IOException {
       if (context == null) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }
@@ -389,7 +392,9 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
         0,
         valueExpression,
         displayExpression,
-        filter, valueOrder);
+        filter,
+        valueOrder,
+        paging);
 
       Optional<String> errorMsg = container.getErrorMsg();
       List<Item> values = container.getValue();
