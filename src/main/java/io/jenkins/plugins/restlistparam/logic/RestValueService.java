@@ -4,7 +4,6 @@ import com.cloudbees.plugins.credentials.common.StandardCredentials;
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
 import hudson.util.FormValidation;
 import io.jenkins.plugins.restlistparam.Messages;
-import io.jenkins.plugins.restlistparam.logic.paging.Paging;
 import io.jenkins.plugins.restlistparam.model.ValueItem;
 import io.jenkins.plugins.restlistparam.model.MimeType;
 import io.jenkins.plugins.restlistparam.model.ResultContainer;
@@ -49,31 +48,25 @@ public class RestValueService {
    * @param displayExpression The Json-Path or xPath expression to filter the display values
    * @param filter            additional regex filter on any parsed values
    * @param order             Set a {@link ValueOrder} to optionally reorder the values
-   * @param paging            Paging
+   * @param pagers            Paging
    * @return A {@link ResultContainer} that capsules either the desired values or a user friendly error message.
    */
   public static ResultContainer<List<ValueItem>> get(final String restEndpoint,
-                                                final StandardCredentials credentials,
-                                                final MimeType mimeType,
-                                                final Integer cacheTime,
-                                                final String valueExpression,
-                                                final String displayExpression,
-                                                final String filter,
-                                                final ValueOrder order,
-                                                final Paging paging) throws IOException {
+                                                     final StandardCredentials credentials,
+                                                     final MimeType mimeType,
+                                                     final Integer cacheTime,
+                                                     final String valueExpression,
+                                                     final String displayExpression,
+                                                     final String filter,
+                                                     final ValueOrder order,
+                                                     final Pagers pagers) throws IOException {
 
     ResultContainer<List<ValueItem>> valueList = new ResultContainer<>(Collections.emptyList());
     Response previousResponse = null;
 
-    while(paging.isLastPage(previousResponse)) {
-      ResultContainer<Response> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, paging, cacheTime, previousResponse);
+    ResultContainer<List<String>> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, pagers, cacheTime);
 
-      previousResponse = rawValues.getValue();
-      Optional<String> rawValueError = rawValues.getErrorMsg();
-
-      ResultContainer<List<ValueItem>> valueList = new ResultContainer<>(Collections.emptyList());
-      ResultContainer<String> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, cacheTime);
-      Optional<String> rawValueError = rawValues.getErrorMsg();
+    Optional<String> rawValueError = rawValues.getErrorMsg();
 
 
     if (!rawValueError.isPresent()) {
@@ -101,8 +94,7 @@ public class RestValueService {
    * @return A {@link FormValidation} to be used in the Jenkins configuration UI
    */
   public static FormValidation doBasicValidation(final String restEndpoint,
-                                                 final StandardCredentials credentials)
-  {
+                                                 final StandardCredentials credentials) {
     OkHttpClient client = OkHttpUtils.getClientWithProxyAndCache(restEndpoint);
     // don't cache the validation response
     Request.Builder builder = new Request.Builder()
@@ -117,18 +109,14 @@ public class RestValueService {
       int statusCode = response.code();
       if (statusCode < 400) {
         return FormValidation.ok();
-      }
-      else if (statusCode < 500) {
+      } else if (statusCode < 500) {
         return FormValidation.error(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
-      }
-      else {
+      } else {
         return FormValidation.error(Messages.RLP_RestValueService_warn_ReqServerErr(statusCode));
       }
-    }
-    catch (UnknownHostException ex) {
+    } catch (UnknownHostException ex) {
       return FormValidation.error(Messages.RLP_RestValueService_warn_UnknownHost(ex.getMessage()));
-    }
-    catch (IOException ex) {
+    } catch (IOException ex) {
       return FormValidation.error(Messages.RLP_RestValueService_warn_OkHttpErr(ex.getClass().getName()));
     }
   }
@@ -136,22 +124,22 @@ public class RestValueService {
   /**
    * Performs the REST/Web request.
    *
-   * @param restEndpoint      A http/https web address to the REST/Web endpoint
-   * @param credentials       The credentials required to access said endpoint
-   * @param mimeType          The MIME type of the expected REST/Web response
-   * @param cacheTime         Time for how long the REST response gets cached for in minutes
+   * @param restEndpoint A http/https web address to the REST/Web endpoint
+   * @param credentials  The credentials required to access said endpoint
+   * @param mimeType     The MIME type of the expected REST/Web response
+   * @param cacheTime    Time for how long the REST response gets cached for in minutes
    * @return A {@link ResultContainer} capsuling either the response body string in the desired {@link MimeType} or an error message
    */
   private static ResultContainer<List<String>> getValueStringFromRestEndpoint(final String restEndpoint,
-                                                                        final StandardCredentials credentials,
-                                                                        final MimeType mimeType,
-                                                                        final Pagers paging,
-                                                                        final Integer cacheTime) {
+                                                                              final StandardCredentials credentials,
+                                                                              final MimeType mimeType,
+                                                                              final Pagers paging,
+                                                                              final Integer cacheTime) {
 
     ResultContainer<List<String>> container = new ResultContainer<>(new ArrayList<>());
 
     String previousResponseBody = null;
-    while(!paging.isLastPage(previousResponseBody)) {
+    while (!paging.isLastPage(previousResponseBody)) {
       OkHttpClient client = OkHttpUtils.getClientWithProxyAndCache(restEndpoint);
       Request request = new Request.Builder()
         .url(restEndpoint)
@@ -206,8 +194,7 @@ public class RestValueService {
    * @return OKHttp headers to be applied to the REST/Web request
    */
   private static Headers buildHeaders(final StandardCredentials credentials,
-                                      final MimeType mimeType)
-  {
+                                      final MimeType mimeType) {
     Headers.Builder headBuilder = new Headers.Builder()
       .add(HTTPHeaders.ACCEPT, mimeType.getMime());
 
@@ -232,14 +219,12 @@ public class RestValueService {
       StandardUsernamePasswordCredentials cred = (StandardUsernamePasswordCredentials) credentials;
       String uNameAndPasswd = cred.getUsername() + ":" + cred.getPassword().getPlainText();
       authTypeWithCredential = "Basic " + Base64.getEncoder()
-                                                .encodeToString(uNameAndPasswd.getBytes(StandardCharsets.UTF_8));
-    }
-    else if (credentials instanceof StringCredentials) {
+        .encodeToString(uNameAndPasswd.getBytes(StandardCharsets.UTF_8));
+    } else if (credentials instanceof StringCredentials) {
       log.fine(Messages.RLP_RestValueService_fine_UsingBearerAuth());
       StringCredentials cred = (StringCredentials) credentials;
       authTypeWithCredential = "Bearer " + cred.getSecret().getPlainText();
-    }
-    else {
+    } else {
       log.warning(Messages.RLP_RestValueService_warn_UnsupportedCredential(credentials.getClass().getName()));
     }
 
@@ -249,17 +234,16 @@ public class RestValueService {
   /**
    * Converts a {@code valueString} of a given {@link MimeType} to a string list based on the values parsed from the expression
    *
-   * @param mimeType    The {@link MimeType} of the {@code valueString}
-   * @param valueString The value string to be parsed
-   * @param valueExpression  The Json-Path or xPath expression to apply on the {@code valueString}
+   * @param mimeType          The {@link MimeType} of the {@code valueString}
+   * @param valueString       The value string to be parsed
+   * @param valueExpression   The Json-Path or xPath expression to apply on the {@code valueString}
    * @param displayExpression Derives the value to be displayed to the user parsed by value expression
    * @return A {@link ResultContainer} capsuling the results of the applied expression or an error message
    */
   private static ResultContainer<List<ValueItem>> convertToValuesList(final MimeType mimeType,
                                                                       final String valueString,
                                                                       final String valueExpression,
-                                                                      final String displayExpression)
-  {
+                                                                      final String displayExpression) {
     ResultContainer<List<ValueItem>> container;
 
     switch (mimeType) {
@@ -286,8 +270,7 @@ public class RestValueService {
    */
   private static ResultContainer<List<ValueItem>> filterAndSortValues(final List<ValueItem> values,
                                                                       final String filter,
-                                                                      final ValueOrder order)
-  {
+                                                                      final ValueOrder order) {
     ResultContainer<List<ValueItem>> container = new ResultContainer<>(Collections.emptyList());
 
     try {
@@ -295,33 +278,29 @@ public class RestValueService {
 
       if (isFilterSet(filter) && !isOrderSet(order)) {
         updatedValues = values.stream()
-                              .filter(value -> value.getValue().matches(filter))
-                              .collect(Collectors.toList());
-      }
-      else if (!isFilterSet(filter) && isOrderSet(order)) {
+          .filter(value -> value.getValue().matches(filter))
+          .collect(Collectors.toList());
+      } else if (!isFilterSet(filter) && isOrderSet(order)) {
         updatedValues = values.stream()
-                              .sorted(order == ValueOrder.ASC ? Comparator.naturalOrder() : Comparator.reverseOrder())
-                              .collect(Collectors.toList());
-      }
-      else {
+          .sorted(order == ValueOrder.ASC ? Comparator.naturalOrder() : Comparator.reverseOrder())
+          .collect(Collectors.toList());
+      } else {
         updatedValues = values.stream()
-                              .filter(value -> value.getValue().matches(filter))
-                              .sorted(order == ValueOrder.ASC ? Comparator.naturalOrder() : Comparator.reverseOrder())
-                              .collect(Collectors.toList());
+          .filter(value -> value.getValue().matches(filter))
+          .sorted(order == ValueOrder.ASC ? Comparator.naturalOrder() : Comparator.reverseOrder())
+          .collect(Collectors.toList());
       }
 
       if (!updatedValues.isEmpty()) {
         container.setValue(updatedValues);
-      }
-      else {
+      } else {
         container.setErrorMsg(Messages.RLP_RestValueService_info_FilterReturnedNoValues(filter));
       }
-    }
-    catch (Exception ex) {
+    } catch (Exception ex) {
       log.warning(Messages.RLP_RestValueService_warn_FilterErr(ex.getClass().getName()));
       container.setErrorMsg(Messages.RLP_RestValueService_warn_FilterErr(ex.getClass().getName()));
       log.fine(EX_CLASS + ex.getClass().getName() + '\n'
-                 + EX_MESSAGE + ex.getMessage());
+        + EX_MESSAGE + ex.getMessage());
     }
 
     return container;
