@@ -1,28 +1,6 @@
 package io.jenkins.plugins.restlistparam;
 
-import com.cloudbees.plugins.credentials.common.StandardCredentials;
-import hudson.Extension;
-import io.jenkins.plugins.restlistparam.logic.paging.Paging;
-import hudson.model.Item;
-import io.jenkins.plugins.restlistparam.model.ValueItem;
-import io.jenkins.plugins.restlistparam.logic.paging.Paging;
-import hudson.model.ParameterDefinition;
-import hudson.model.ParameterValue;
-import hudson.model.SimpleParameterDefinition;
-import hudson.util.FormValidation;
-import hudson.util.ListBoxModel;
-import io.jenkins.plugins.restlistparam.logic.RestValueService;
-import io.jenkins.plugins.restlistparam.model.MimeType;
-import io.jenkins.plugins.restlistparam.model.ResultContainer;
-import io.jenkins.plugins.restlistparam.model.ValueOrder;
-import io.jenkins.plugins.restlistparam.util.CredentialsUtils;
-import io.jenkins.plugins.restlistparam.util.PathExpressionValidationUtils;
-import jenkins.model.Jenkins;
-import net.sf.json.JSONObject;
-import org.apache.commons.lang.StringUtils;
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.*;
-import org.kohsuke.stapler.verb.POST;
+import static io.jenkins.plugins.restlistparam.logic.Pagers.NO_PAGER;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
@@ -32,6 +10,34 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.cloudbees.plugins.credentials.common.StandardCredentials;
+import hudson.Extension;
+import io.jenkins.plugins.restlistparam.logic.paging.Paging;
+import hudson.model.Item;
+import hudson.model.ParameterDefinition;
+import hudson.model.ParameterValue;
+import hudson.model.SimpleParameterDefinition;
+import hudson.util.FormValidation;
+import hudson.util.ListBoxModel;
+import io.jenkins.plugins.restlistparam.logic.RestValueService;
+import io.jenkins.plugins.restlistparam.logic.Pagers;
+import io.jenkins.plugins.restlistparam.model.MimeType;
+import io.jenkins.plugins.restlistparam.model.ResultContainer;
+import io.jenkins.plugins.restlistparam.model.ValueItem;
+import io.jenkins.plugins.restlistparam.model.ValueOrder;
+import io.jenkins.plugins.restlistparam.util.CredentialsUtils;
+import io.jenkins.plugins.restlistparam.util.PathExpressionValidationUtils;
+import jenkins.model.Jenkins;
+import net.sf.json.JSONObject;
+import org.apache.commons.lang.StringUtils;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.AncestorInPath;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.DataBoundSetter;
+import org.kohsuke.stapler.QueryParameter;
+import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.verb.POST;
+
 public final class RestListParameterDefinition extends SimpleParameterDefinition {
   private static final long serialVersionUID = 3453376762337829455L;
   private static final RestListParameterGlobalConfig config = RestListParameterGlobalConfig.get();
@@ -40,6 +46,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
   private final String credentialId;
   private final MimeType mimeType;
   private final String valueExpression;
+  private final Pagers paging;
   private String displayExpression;
   private ValueOrder valueOrder;
   private String defaultValue;
@@ -55,10 +62,11 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
                                      final String credentialId,
                                      final MimeType mimeType,
                                      final String valueExpression,
-                                     final String displayExpression)
+                                     final String displayExpression,
+                                     final Pagers paging)
   {
     this(name, description, restEndpoint, credentialId, mimeType, valueExpression,
-      displayExpression, ValueOrder.NONE, ".*", config.getCacheTime(), "");
+      displayExpression, ValueOrder.NONE, ".*", config.getCacheTime(), "", paging);
   }
 
   public RestListParameterDefinition(final String name,
@@ -71,7 +79,8 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
                                      final ValueOrder valueOrder,
                                      final String filter,
                                      final Integer cacheTime,
-                                     final String defaultValue)
+                                     final String defaultValue,
+                                     final Pagers paging)
   {
     super(name, description);
     this.restEndpoint = restEndpoint;
@@ -85,6 +94,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
     this.cacheTime = cacheTime != null ? cacheTime : config.getCacheTime();
     this.errorMsg = "";
     this.values = Collections.emptyList();
+    this.paging = paging != null ? paging : NO_PAGER;
   }
 
   public String getRestEndpoint() {
@@ -168,7 +178,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
       getDisplayExpression(),
       getFilter(),
       getValueOrder(),
-      null);
+      getPaging());
 
     setErrorMsg(container.getErrorMsg().orElse(""));
     values = container.getValue();
@@ -181,7 +191,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
       RestListParameterValue value = (RestListParameterValue) defaultValue;
       return new RestListParameterDefinition(
         getName(), getDescription(), getRestEndpoint(), getCredentialId(), getMimeType(),
-        getValueExpression(), getDisplayExpression(), getValueOrder(), getFilter(), getCacheTime(), value.getValue());
+        getValueExpression(), getDisplayExpression(), getValueOrder(), getFilter(), getCacheTime(), value.getValue(), getPaging());
     }
     else {
       return this;
@@ -267,6 +277,10 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
       return false;
     }
     return Objects.equals(defaultValue, other.defaultValue);
+  }
+
+  public Pagers getPaging() {
+    return paging;
   }
 
   @Symbol({"RESTList", "RestList", "RESTListParam"})
@@ -368,7 +382,7 @@ public final class RestListParameterDefinition extends SimpleParameterDefinition
                                               @QueryParameter final String displayExpression,
                                               @QueryParameter final String filter,
                                               @QueryParameter final ValueOrder valueOrder,
-                                              @QueryParameter final Paging paging) throws IOException {
+                                              @QueryParameter final Pagers paging) throws IOException {
       if (context == null) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
       }

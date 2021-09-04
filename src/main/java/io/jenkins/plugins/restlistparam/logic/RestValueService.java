@@ -75,12 +75,15 @@ public class RestValueService {
       ResultContainer<String> rawValues = getValueStringFromRestEndpoint(restEndpoint, credentials, mimeType, cacheTime);
       Optional<String> rawValueError = rawValues.getErrorMsg();
 
-      if (!rawValueError.isPresent()) {
-        String responseString = rawValues.getValue().body() != null ? rawValues.getValue().body().string() : "";
-        valueList = convertToValuesList(mimeType, responseString, valueExpression, displayExpression);
-      } else {
-        valueList.setErrorMsg(rawValueError.get());
-      }
+
+    if (!rawValueError.isPresent()) {
+      valueList = new ResultContainer<>(rawValues.getValue().stream()
+        .map(responseString -> convertToValuesList(mimeType, responseString, valueExpression, displayExpression))
+        .map(ResultContainer::getValue)
+        .flatMap(Collection::stream)
+        .collect(Collectors.toList()));
+    } else {
+      valueList.setErrorMsg(rawValueError.get());
     }
 
     if (!valueList.getErrorMsg().isPresent() && isFilterOrOrderSet(filter, order)) {
@@ -137,50 +140,53 @@ public class RestValueService {
    * @param credentials       The credentials required to access said endpoint
    * @param mimeType          The MIME type of the expected REST/Web response
    * @param cacheTime         Time for how long the REST response gets cached for in minutes
-   * @param previousResponse  Response from previous request if any
    * @return A {@link ResultContainer} capsuling either the response body string in the desired {@link MimeType} or an error message
    */
-  private static ResultContainer<Response> getValueStringFromRestEndpoint(final String restEndpoint,
+  private static ResultContainer<List<String>> getValueStringFromRestEndpoint(final String restEndpoint,
                                                                         final StandardCredentials credentials,
                                                                         final MimeType mimeType,
-                                                                        final Paging paging,
-                                                                        final Integer cacheTime,
-                                                                        final Response previousResponse) throws IOException {
+                                                                        final Pagers paging,
+                                                                        final Integer cacheTime) {
 
-    ResultContainer<Response> container = new ResultContainer<>(null);
+    ResultContainer<List<String>> container = new ResultContainer<>(new ArrayList<>());
 
-    OkHttpClient client = OkHttpUtils.getClientWithProxyAndCache(restEndpoint);
-    Request request = new Request.Builder()
-      .url(restEndpoint)
-      .cacheControl(OkHttpUtils.getCacheControl(cacheTime))
-      .headers(buildHeaders(credentials, mimeType))
-      .build();
+    String previousResponseBody = null;
+    while(!paging.isLastPage(previousResponseBody)) {
+      OkHttpClient client = OkHttpUtils.getClientWithProxyAndCache(restEndpoint);
+      Request request = new Request.Builder()
+        .url(restEndpoint)
+        .cacheControl(OkHttpUtils.getCacheControl(cacheTime))
+        .headers(buildHeaders(credentials, mimeType))
+        .build();
 
-    paging.applyPaging(previousResponse, request);
+      request = paging.applyPaging(previousResponseBody, request);
 
-    try (Response response = client.newCall(request).execute()) {
-      int statusCode = response.code();
-      if (statusCode < 400) {
-        container.setValue(response);
+      try (Response response = client.newCall(request).execute()) {
+        int statusCode = response.code();
+        if (statusCode < 400) {
+          previousResponseBody = response.body() != null ? response.body().string() : "";
+          container.getValue().add(previousResponseBody);
+        } else if (statusCode < 500) {
+          log.warning(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
+          container.setErrorMsg(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
+          break;
+        } else {
+          log.warning(Messages.RLP_RestValueService_warn_ReqServerErr(statusCode));
+          container.setErrorMsg(Messages.RLP_RestValueService_warn_ReqServerErr(statusCode));
+          break;
+        }
+
+      } catch (UnknownHostException ex) {
+        log.warning(Messages.RLP_RestValueService_warn_UnknownHost(ex.getMessage()));
+        container.setErrorMsg(Messages.RLP_RestValueService_warn_UnknownHost(ex.getMessage()));
+        break;
+      } catch (IOException ex) {
+        log.warning(Messages.RLP_RestValueService_warn_OkHttpErr(ex.getClass().getName()));
+        container.setErrorMsg(Messages.RLP_RestValueService_warn_OkHttpErr(ex.getClass().getName()));
+        log.fine(EX_CLASS + ex.getClass().getName() + '\n'
+          + EX_MESSAGE + ex.getMessage());
+        break;
       }
-      else if (statusCode < 500) {
-        log.warning(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
-        container.setErrorMsg(Messages.RLP_RestValueService_warn_ReqClientErr(statusCode));
-      }
-      else {
-        log.warning(Messages.RLP_RestValueService_warn_ReqServerErr(statusCode));
-        container.setErrorMsg(Messages.RLP_RestValueService_warn_ReqServerErr(statusCode));
-      }
-    }
-    catch (UnknownHostException ex) {
-      log.warning(Messages.RLP_RestValueService_warn_UnknownHost(ex.getMessage()));
-      container.setErrorMsg(Messages.RLP_RestValueService_warn_UnknownHost(ex.getMessage()));
-    }
-    catch (IOException ex) {
-      log.warning(Messages.RLP_RestValueService_warn_OkHttpErr(ex.getClass().getName()));
-      container.setErrorMsg(Messages.RLP_RestValueService_warn_OkHttpErr(ex.getClass().getName()));
-      log.fine(EX_CLASS + ex.getClass().getName() + '\n'
-                 + EX_MESSAGE + ex.getMessage());
     }
 
     return container;

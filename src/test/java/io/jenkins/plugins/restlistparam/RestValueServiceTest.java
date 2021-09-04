@@ -1,7 +1,7 @@
 package io.jenkins.plugins.restlistparam;
 
 import io.jenkins.plugins.restlistparam.logic.RestValueService;
-import io.jenkins.plugins.restlistparam.logic.paging.Pagers;
+import io.jenkins.plugins.restlistparam.logic.Pagers;
 import io.jenkins.plugins.restlistparam.model.MimeType;
 import io.jenkins.plugins.restlistparam.model.ValueItem;
 import io.jenkins.plugins.restlistparam.model.ResultContainer;
